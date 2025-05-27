@@ -79,7 +79,7 @@
                   >登 录</el-button
                 >
               </el-form-item>
-              <el-form-item class="mb-6">
+              <el-form-item v-if="needInit" class="mb-6">
                 <el-button
                   class="shadow shadow-active h-11 w-full"
                   type="primary"
@@ -137,6 +137,8 @@
   })
 
   const router = useRouter()
+  const needInit = ref(true)
+  
   // 验证函数
   const checkUsername = (rule, value, callback) => {
     if (value.length < 5) {
@@ -220,6 +222,17 @@
     })
   }
 
+  // 检查初始化状态
+  const checkInitStatus = async () => {
+    const res = await checkDB()
+    if (res.code === 0) {
+      needInit.value = res.data?.needInit
+    }
+  }
+  
+  // 页面加载时检查初始化状态
+  checkInitStatus()
+  
   // 跳转初始化
   const checkInit = async () => {
     const res = await checkDB()

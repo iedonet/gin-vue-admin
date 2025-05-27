@@ -320,6 +320,10 @@
           <el-form-item label="图片高度">
             <el-input-number v-model.number="config.captcha['img-height']" />
           </el-form-item>
+          <el-form-item label="防爆配置">
+            <el-input-number v-model.number="config.captcha['open-captcha']" :min="0" :max="3" />
+            <span class="text-red-500 ml-2">0 代表每次登录都需要验证码，大于0代表输错该次数后才出现验证码</span>
+          </el-form-item>
         </el-tab-pane>
         <el-tab-pane label="数据库配置" name="9" class="mt-3.5">
           <template v-if="config.system['db-type'] === 'mysql'">
