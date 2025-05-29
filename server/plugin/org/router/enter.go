@@ -1,6 +1,10 @@
 package router
 
-var Router = new(router)
+import "github.com/flipped-aurora/gin-vue-admin/server/plugin/org/api"
 
-type router struct {
-}
+var (
+	Router                  = new(router)
+	apiIedoOrgOrganizations = api.Api.IedoOrgOrganizations
+)
+
+type router struct{ IedoOrgOrganizations iedoOrgOrganizations }

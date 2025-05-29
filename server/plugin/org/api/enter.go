@@ -1,6 +1,10 @@
 package api
 
-var Api = new(api)
+import "github.com/flipped-aurora/gin-vue-admin/server/plugin/org/service"
 
-type api struct {
-}
+var (
+	Api                         = new(api)
+	serviceIedoOrgOrganizations = service.Service.IedoOrgOrganizations
+)
+
+type api struct{ IedoOrgOrganizations iedoOrgOrganizations }

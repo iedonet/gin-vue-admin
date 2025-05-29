@@ -2,17 +2,16 @@ package main
 
 import (
 	"gorm.io/gen"
-	"path/filepath"
+	"path/filepath" //go:generate go mod tidy
+	//go:generate go mod download
+	//go:generate go run gen.go
+	"github.com/flipped-aurora/gin-vue-admin/server/plugin/org/model"
 )
 
-//go:generate go mod tidy
-//go:generate go mod download
-//go:generate go run gen.go
 func main() {
-	g := gen.NewGenerator(gen.Config{
-		OutPath: filepath.Join("..", "..", "..", "org", "blender", "model", "dao"),
-		Mode:    gen.WithoutContext | gen.WithDefaultQuery | gen.WithQueryInterface,
-	})
-	g.ApplyBasic()
+	g := gen.NewGenerator(gen.Config{OutPath: filepath.Join("..", "..", "..", "org", "blender", "model", "dao"), Mode: gen.WithoutContext | gen.WithDefaultQuery | gen.WithQueryInterface})
+	g.ApplyBasic(
+		new(model.IedoOrgOrganizations),
+	)
 	g.Execute()
 }
