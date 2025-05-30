@@ -277,6 +277,7 @@ func (userService *UserService) GetUserInfo(uuid uuid.UUID) (user system.SysUser
 	}
 	MenuServiceApp.UserAuthorityDefaultRouter(&reqUser)
 	return reqUser, err
+	
 }
 
 //@author: [SliverHorn](https://github.com/SliverHorn)

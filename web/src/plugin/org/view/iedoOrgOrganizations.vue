@@ -10,7 +10,7 @@
           </div>
           <el-tree
             :data="treeData"
-            :props="treeProps"
+            :props="TREE_PROPS"
             node-key="id"
             highlight-current
             @node-click="handleNodeClick"
@@ -79,12 +79,13 @@
     </el-row>
     <!-- 组织编辑/新增弹窗 -->
     <el-dialog v-model="dialogFormVisible" :title="type === 'create' ? '新增组织' : '编辑组织'" width="600px">
-      <el-form ref="elFormRef" :model="formData" :rules="rule" label-width="80px">
-        <el-form-item label="上级组织" prop="parentId">
+      <el-form ref="elFormRef" :model="formData" :rules="RULES" label-width="80px">
+        <el-form-item label="上级组织" prop="parentId" v-if="dialogFormVisible">
           <el-tree-select
-            v-model="formData.parentId"
+            
+          v-model="formData.parentId"
             :data="treeData"
-            :props="treeProps"
+            :props="TREE_PROPS"
             clearable
             style="width: 100%"
             placeholder="请选择上级组织"
@@ -157,6 +158,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ref, reactive, onMounted } from 'vue'
 import { CirclePlus, Edit, Delete } from '@element-plus/icons-vue'
 import { filterDict, getDictFunc } from '@/utils/format'
+import { useUserStore } from '@/pinia/modules/user'
 
 const treeData = ref([])
 const currentOrg = ref(null)
@@ -174,44 +176,64 @@ const formData = ref({
   contactPhone: '',
   address: '',
   description: '',
-  sort: 0
+  sort: 0,
+  createdBy: undefined,
+  updatedBy: undefined
 })
 const orgtypeOptions = ref([])
-const rule = reactive({
+const RULES = {
   name: [{ required: true, message: '请输入组织名称', trigger: 'blur' }],
   code: [{ required: true, message: '请输入组织编码', trigger: 'blur' }],
   type: [{ required: true, message: '请选择组织类型', trigger: 'change' }],
   status: [{ required: true, message: '请选择状态', trigger: 'change' }]
-})
-const treeProps = { children: 'children', label: 'name', value: 'id' }
+}
+const TREE_PROPS = { children: 'children', label: 'name', value: 'id' }
 const defaultExpandedKeys = ref([])
+const userStore = useUserStore()
 
 const getTableData = async () => {
   const res = await getIedoOrgOrganizationsList({ page: 1, pageSize: 9999 })
   if (res.code === 0) {
     treeData.value = listToTree(res.data.list)
-    sortTreeData(treeData.value)
     defaultExpandedKeys.value = treeData.value.map(i => i.id)
   }
 }
 function listToTree(list, parentId = 0) {
-  return list.filter(i => i.parentId === parentId).map(i => ({
-    ...i,
-    children: listToTree(list, i.id)
-  }))
+  return list
+    .filter(i => i.parentId === parentId)
+    .sort((a, b) => (b.sort ?? 0) - (a.sort ?? 0))
+    .map(i => ({
+      ...i,
+      children: listToTree(list, i.id)
+    }))
 }
 const handleNodeClick = (data) => {
   currentOrg.value = data
 }
-function generateShortCode(parentId, type) {
+function generateShortCodeGlobal(type, existingCode = null) {
+  // 如果是编辑操作且已有 code，则保持原有 code
+  if (existingCode) {
+    return existingCode;
+  }
+  
   const prefix = type.charAt(0).toUpperCase();
-  const siblings = parentId
-    ? (findNodeById(treeData.value, parentId)?.children || [])
-    : treeData.value;
-  const usedNums = siblings
-    .filter(item => item.type === type && item.code && item.code.startsWith(prefix))
-    .map(item => {
-      const match = item.code.match(/^[A-Z](\d{2})$/);
+  // 全部已用code
+  const allCodes = [];
+  function collectCodes(tree) {
+    tree.forEach(item => {
+      if (item.type === type && item.code && item.code.startsWith(prefix)) {
+        allCodes.push(item.code);
+      }
+      if (item.children && item.children.length) {
+        collectCodes(item.children);
+      }
+    });
+  }
+  collectCodes(treeData.value);
+  // 提取已用序号
+  const usedNums = allCodes
+    .map(code => {
+      const match = code.match(/^[A-Z](\d{2})$/);
       return match ? parseInt(match[1], 10) : null;
     })
     .filter(num => num !== null);
@@ -239,14 +261,32 @@ function generateOrgPath(parentId, code) {
     return `${parent.path.replace(/\/$/, '')}/${code}`
   }
 }
+const initFormData = (parentId = undefined) => {
+  return {
+    id: undefined,
+    parentId: parentId === 0 ? 0 : parentId,
+    name: '',
+    code: '',
+    type: '',
+    logo: '',
+    status: '1',
+    contactName: '',
+    contactPhone: '',
+    address: '',
+    description: '',
+    sort: 0,
+    createdBy: undefined,
+    updatedBy: undefined
+  }
+}
 const addRootOrg = async () => {
   type.value = 'create'
-  formData.value = { id: undefined, parentId: 0, name: '', code: '', type: '', logo: '', status: '1', contactName: '', contactPhone: '', address: '', description: '', sort: 0 }
+  formData.value = initFormData(0)
   dialogFormVisible.value = true
 }
 const addChildOrg = async (data) => {
   type.value = 'create'
-  formData.value = { id: undefined, parentId: data.id, name: '', code: '', type: '', logo: '', status: '1', contactName: '', contactPhone: '', address: '', description: '', sort: 0 }
+  formData.value = initFormData(data.id)
   dialogFormVisible.value = true
 }
 const editOrg = async (data) => {
@@ -264,19 +304,32 @@ const deleteOrg = (data) => {
 }
 const closeDialog = () => { dialogFormVisible.value = false }
 const enterDialog = async () => {
-  btnLoading.value = true
-  formData.value.code = generateShortCode(formData.value.parentId, formData.value.type)
-  formData.value.path = generateOrgPath(formData.value.parentId, formData.value.code)
-  let res
-  if (type.value === 'create') res = await createIedoOrgOrganizations(formData.value)
-  else res = await updateIedoOrgOrganizations(formData.value)
-  btnLoading.value = false
+  btnLoading.value = true;
+  // 只在创建时生成新的 code
+  if (type.value === 'create') {
+    formData.value.code = generateShortCodeGlobal(formData.value.type);
+  }
+  formData.value.path = generateOrgPath(formData.value.parentId, formData.value.code);
+  formData.value.level = getLevel(formData.value.parentId);
+  if (type.value === 'create') {
+    formData.value.createdBy = userStore.userInfo.ID;
+    formData.value.updatedBy = userStore.userInfo.ID;
+  }
+  console.log('最终提交数据:', formData.value); // 调试用
+  let res;
+  if (type.value === 'create') res = await createIedoOrgOrganizations(formData.value);
+  else res = await updateIedoOrgOrganizations(formData.value);
+  btnLoading.value = false;
   if (res.code === 0) {
-    ElMessage.success('操作成功')
-    closeDialog()
-    await getTableData()
-    if (res.data && res.data.id) {
-      currentOrg.value = findNodeById(treeData.value, res.data.id)
+    ElMessage.success('操作成功');
+    closeDialog();
+    await getTableData();// 刷新树数据
+     // 关键修改：重新获取当前组织最新数据
+     if (currentOrg.value && currentOrg.value.id) {
+      const detailRes = await findIedoOrgOrganizations({ id: currentOrg.value.id });
+      if (detailRes.code === 0) {
+        currentOrg.value = detailRes.data; // 直接赋值新对象
+      }
     }
   }
 }
@@ -284,15 +337,6 @@ const btnLoading = ref(false)
 
 const getOrgTypeOptions = async () => {
   orgtypeOptions.value = await getDictFunc('orgtype')
-}
-
-function sortTreeData(data) {
-  data.sort((a, b) => (b.sort ?? 0) - (a.sort ?? 0))
-  data.forEach(item => {
-    if (item.children && item.children.length) {
-      sortTreeData(item.children)
-    }
-  })
 }
 
 function getOrgTypeTagType(type) {
@@ -326,6 +370,12 @@ function beforeLogoUpload(file) {
     return false
   }
   return true
+}
+
+function getLevel(parentId) {
+  if (!parentId || parentId === 0) return 1;
+  const parent = findNodeById(treeData.value, parentId);
+  return parent ? (parent.level || 1) + 1 : 1;
 }
 
 onMounted(() => {
