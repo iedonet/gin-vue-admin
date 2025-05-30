@@ -3,8 +3,8 @@
     <el-row :gutter="16" class="org-main-row">
       <!-- 左侧组织树 -->
       <el-col :span="5" class="org-tree-col">
-        <el-card shadow="hover" class="org-tree-card">
-          <div class="org-tree-header">
+        <el-card shadow="hover" class="org-card">
+          <div class="org-header">
             <span>组织架构</span>
             <el-button type="primary" size="small" @click="addRootOrg">新增根组织</el-button>
           </div>
@@ -21,7 +21,7 @@
             <template #default="{ node, data }">
               <div class="custom-tree-node">
                 <span class="node-label">{{ data.name }}</span>
-                <el-tag size="small" :type="getOrgTypeTagType(data.type)" style="margin-left: 8px;">
+                <el-tag size="small" :type="ORG_TYPE_TAG_MAP[data.type] || 'info'" style="margin-left: 8px;">
                   {{ orgtypeOptions.find(opt => opt.value === data.type)?.label || '-' }}
                 </el-tag>
                 <div class="node-actions">
@@ -36,9 +36,9 @@
       </el-col>
       <!-- 中间组织详情 -->
       <el-col :span="7" class="org-detail-col">
-        <el-card shadow="hover" class="org-detail-card">
+        <el-card shadow="hover" class="org-card">
           <template v-if="currentOrg">
-            <div class="org-detail-header">
+            <div class="org-header">
               <span>组织详情</span>
               <div class="org-header-actions">
                 <el-button type="primary" size="small" @click="addChildOrg(currentOrg)">新增下级</el-button>
@@ -66,10 +66,10 @@
           </template>
         </el-card>
       </el-col>
-      <!-- 右侧成员管理（可留空或mock） -->
+      <!-- 右侧成员管理 -->
       <el-col :span="12" class="org-member-col">
-        <el-card shadow="hover" class="org-member-card">
-          <div class="org-member-header">
+        <el-card shadow="hover" class="org-card">
+          <div class="org-header">
             <span>成员管理</span>
             <el-button type="primary" size="small">添加成员</el-button>
           </div>
@@ -81,15 +81,12 @@
     <el-dialog v-model="dialogFormVisible" :title="type === 'create' ? '新增组织' : '编辑组织'" width="600px">
       <el-form ref="elFormRef" :model="formData" :rules="RULES" label-width="80px">
         <el-form-item label="上级组织" prop="parentId" v-if="dialogFormVisible">
-          <el-tree-select
-            
-          v-model="formData.parentId"
-            :data="treeData"
-            :props="TREE_PROPS"
-            clearable
-            style="width: 100%"
-            placeholder="请选择上级组织"
+          <el-input 
+            :value="formData.parentId === 0 ? '根组织' : findNodeById(treeData, formData.parentId)?.name || ''" 
+            disabled 
+            placeholder="上级组织" 
           />
+          <input type="hidden" v-model="formData.parentId" />
         </el-form-item>
         <el-form-item label="组织名称" prop="name">
           <el-input v-model="formData.name" placeholder="请输入组织名称" />
@@ -104,7 +101,7 @@
             <el-input v-model="formData.logo" placeholder="Logo URL" style="width: 300px;" />
             <el-upload
               class="logo-uploader"
-              :action="uploadUrl"
+              :action="UPLOAD_CONFIG.url"
               :show-file-list="false"
               :on-success="handleLogoSuccess"
               :before-upload="beforeLogoUpload"
@@ -151,46 +148,50 @@ import {
   getIedoOrgOrganizationsList,
   createIedoOrgOrganizations,
   updateIedoOrgOrganizations,
-  deleteIedoOrgOrganizations,
-  findIedoOrgOrganizations
+  deleteIedoOrgOrganizations
 } from '@/plugin/org/api/iedoOrgOrganizations'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ref, reactive, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { CirclePlus, Edit, Delete } from '@element-plus/icons-vue'
 import { filterDict, getDictFunc } from '@/utils/format'
 import { useUserStore } from '@/pinia/modules/user'
 
-const treeData = ref([])
-const currentOrg = ref(null)
-const dialogFormVisible = ref(false)
-const type = ref('create')
-const formData = ref({
-  id: undefined,
-  parentId: undefined,
-  name: '',
-  code: '',
-  type: '',
-  logo: '',
-  status: '1',
-  contactName: '',
-  contactPhone: '',
-  address: '',
-  description: '',
-  sort: 0,
-  createdBy: undefined,
-  updatedBy: undefined
-})
-const orgtypeOptions = ref([])
+// 常量定义 组织右侧标识的颜色
+const ORG_TYPE_TAG_MAP = {
+  group: 'primary',
+  company: 'default',
+  branch: 'success',
+  subsidiary: 'warning',
+  department: 'danger',
+  post: 'info'
+}
+
+const UPLOAD_CONFIG = {
+  url: import.meta.env.VITE_BASE_API + '/organization/uploadLogo',
+  maxSize: 2, // MB
+  allowedTypes: ['image/']
+}
+
+const TREE_PROPS = { children: 'children', label: 'name', value: 'id' }
 const RULES = {
   name: [{ required: true, message: '请输入组织名称', trigger: 'blur' }],
   code: [{ required: true, message: '请输入组织编码', trigger: 'blur' }],
   type: [{ required: true, message: '请选择组织类型', trigger: 'change' }],
   status: [{ required: true, message: '请选择状态', trigger: 'change' }]
 }
-const TREE_PROPS = { children: 'children', label: 'name', value: 'id' }
+
+// 响应式数据
+const treeData = ref([])
+const currentOrg = ref(null)
+const dialogFormVisible = ref(false)
+const type = ref('create')
+const formData = ref(initFormData())
+const orgtypeOptions = ref([])
 const defaultExpandedKeys = ref([])
+const btnLoading = ref(false)
 const userStore = useUserStore()
 
+// 方法定义
 const getTableData = async () => {
   const res = await getIedoOrgOrganizationsList({ page: 1, pageSize: 9999 })
   if (res.code === 0) {
@@ -198,6 +199,7 @@ const getTableData = async () => {
     defaultExpandedKeys.value = treeData.value.map(i => i.id)
   }
 }
+
 function listToTree(list, parentId = 0) {
   return list
     .filter(i => i.parentId === parentId)
@@ -207,41 +209,49 @@ function listToTree(list, parentId = 0) {
       children: listToTree(list, i.id)
     }))
 }
+
 const handleNodeClick = (data) => {
   currentOrg.value = data
 }
-function generateShortCodeGlobal(type, existingCode = null) {
-  // 如果是编辑操作且已有 code，则保持原有 code
-  if (existingCode) {
-    return existingCode;
-  }
+
+function generateShortCode(type, existingCode = null) {
+  if (existingCode) return existingCode
   
-  const prefix = type.charAt(0).toUpperCase();
-  // 全部已用code
-  const allCodes = [];
-  function collectCodes(tree) {
-    tree.forEach(item => {
-      if (item.type === type && item.code && item.code.startsWith(prefix)) {
-        allCodes.push(item.code);
-      }
-      if (item.children && item.children.length) {
-        collectCodes(item.children);
-      }
-    });
-  }
-  collectCodes(treeData.value);
-  // 提取已用序号
-  const usedNums = allCodes
-    .map(code => {
-      const match = code.match(/^[A-Z](\d{2})$/);
-      return match ? parseInt(match[1], 10) : null;
-    })
-    .filter(num => num !== null);
-  let num = 1;
-  while (usedNums.includes(num)) num++;
-  const numStr = num < 10 ? '0' + num : '' + num;
-  return prefix + numStr;
+  const prefix = type.charAt(0).toUpperCase()
+  const allCodes = getAllCodesByType(type, prefix)
+  const usedNums = allCodes.map(code => {
+    const match = code.match(/^[A-Z](\d{2})$/)
+    return match ? parseInt(match[1], 10) : null
+  }).filter(num => num !== null)
+  
+  let num = 1
+  while (usedNums.includes(num)) num++
+  return prefix + (num < 10 ? '0' + num : num)
 }
+
+function getAllCodesByType(type, prefix) {
+  const codes = []
+  const traverse = (nodes) => {
+    nodes.forEach(node => {
+      if (node.type === type && node.code?.startsWith(prefix)) {
+        codes.push(node.code)
+      }
+      if (node.children?.length) {
+        traverse(node.children)
+      }
+    })
+  }
+  traverse(treeData.value)
+  return codes
+}
+
+function generateOrgPath(parentId, code) {
+  if (!parentId || parentId === 0) return `/${code}`
+  
+  const parent = findNodeById(treeData.value, parentId)
+  return parent ? `${parent.path.replace(/\/$/, '')}/${code}` : `/${code}`
+}
+
 function findNodeById(tree, id) {
   for (const node of tree) {
     if (node.id === id) return node
@@ -252,16 +262,8 @@ function findNodeById(tree, id) {
   }
   return null
 }
-function generateOrgPath(parentId, code) {
-  if (!parentId || parentId === 0) {
-    return `/${code}`
-  } else {
-    const parent = findNodeById(treeData.value, parentId)
-    if (!parent) return `/${code}`
-    return `${parent.path.replace(/\/$/, '')}/${code}`
-  }
-}
-const initFormData = (parentId = undefined) => {
+
+function initFormData(parentId = undefined) {
   return {
     id: undefined,
     parentId: parentId === 0 ? 0 : parentId,
@@ -279,105 +281,98 @@ const initFormData = (parentId = undefined) => {
     updatedBy: undefined
   }
 }
-const addRootOrg = async () => {
+
+function getLevel(parentId) {
+  if (!parentId || parentId === 0) return 1
+  const parent = findNodeById(treeData.value, parentId)
+  return parent ? (parent.level || 1) + 1 : 1
+}
+
+const addRootOrg = () => {
   type.value = 'create'
   formData.value = initFormData(0)
   dialogFormVisible.value = true
 }
-const addChildOrg = async (data) => {
+
+const addChildOrg = (data) => {
   type.value = 'create'
   formData.value = initFormData(data.id)
   dialogFormVisible.value = true
 }
-const editOrg = async (data) => {
-  const res = await findIedoOrgOrganizations({ id: data.id })
-  if (res.code === 0) {
-    formData.value = res.data
-    type.value = 'update'
-    dialogFormVisible.value = true
-  }
+
+const editOrg = (data) => {
+  type.value = 'update'
+  formData.value = {...data}
+  dialogFormVisible.value = true
 }
+
 const deleteOrg = (data) => {
   ElMessageBox.confirm('确定要删除该组织吗?', '提示', { type: 'warning' })
     .then(() => deleteIedoOrgOrganizations({ id: data.id }))
     .then(res => { if (res.code === 0) getTableData() })
 }
-const closeDialog = () => { dialogFormVisible.value = false }
+
+const closeDialog = () => { 
+  dialogFormVisible.value = false 
+}
+
 const enterDialog = async () => {
-  btnLoading.value = true;
-  // 只在创建时生成新的 code
+  btnLoading.value = true
+  
+  // 准备表单数据
   if (type.value === 'create') {
-    formData.value.code = generateShortCodeGlobal(formData.value.type);
+    formData.value.code = generateShortCode(formData.value.type)
+    formData.value.createdBy = userStore.userInfo.ID
+    formData.value.updatedBy = userStore.userInfo.ID
   }
-  formData.value.path = generateOrgPath(formData.value.parentId, formData.value.code);
-  formData.value.level = getLevel(formData.value.parentId);
-  if (type.value === 'create') {
-    formData.value.createdBy = userStore.userInfo.ID;
-    formData.value.updatedBy = userStore.userInfo.ID;
-  }
-  console.log('最终提交数据:', formData.value); // 调试用
-  let res;
-  if (type.value === 'create') res = await createIedoOrgOrganizations(formData.value);
-  else res = await updateIedoOrgOrganizations(formData.value);
-  btnLoading.value = false;
+  formData.value.path = generateOrgPath(formData.value.parentId, formData.value.code)
+  formData.value.level = getLevel(formData.value.parentId)
+
+  // 提交数据
+  const res = type.value === 'create' 
+    ? await createIedoOrgOrganizations(formData.value)
+    : await updateIedoOrgOrganizations(formData.value)
+
+  btnLoading.value = false
+  
   if (res.code === 0) {
-    ElMessage.success('操作成功');
-    closeDialog();
-    await getTableData();// 刷新树数据
-     // 关键修改：重新获取当前组织最新数据
-     if (currentOrg.value && currentOrg.value.id) {
-      const detailRes = await findIedoOrgOrganizations({ id: currentOrg.value.id });
-      if (detailRes.code === 0) {
-        currentOrg.value = detailRes.data; // 直接赋值新对象
-      }
+    ElMessage.success('操作成功')
+    closeDialog()
+    await getTableData()
+    // 更新当前组织数据
+    if (currentOrg.value?.id === formData.value.id) {
+      currentOrg.value = {...formData.value}
     }
   }
 }
-const btnLoading = ref(false)
 
 const getOrgTypeOptions = async () => {
   orgtypeOptions.value = await getDictFunc('orgtype')
 }
 
-function getOrgTypeTagType(type) {
-  const typeMap = {
-    group: 'primary',   // 蓝 集团
-    company: 'default',   // 灰蓝 公司
-    branch: 'success',   // 绿 分公司
-    subsidiary: 'warning',      //  黄 子公司
-    department: 'danger',    // 红 部门
-    post: 'info'    // 灰 岗位
-  }
-  return typeMap[type] || 'info'
-}
-
-const uploadUrl = import.meta.env.VITE_BASE_API + '/organization/uploadLogo'
-function handleLogoSuccess(res) {
+const handleLogoSuccess = (res) => {
   if (res.code === 0) {
     formData.value.logo = res.data
     ElMessage.success('Logo上传成功')
   }
 }
-function beforeLogoUpload(file) {
-  const isImage = file.type.startsWith('image/')
-  const isLt2M = file.size / 1024 / 1024 < 2
+
+const beforeLogoUpload = (file) => {
+  const isImage = UPLOAD_CONFIG.allowedTypes.some(type => file.type.startsWith(type))
+  const isLt2M = file.size / 1024 / 1024 < UPLOAD_CONFIG.maxSize
+  
   if (!isImage) {
     ElMessage.error('只能上传图片文件!')
     return false
   }
   if (!isLt2M) {
-    ElMessage.error('图片大小不能超过 2MB!')
+    ElMessage.error(`图片大小不能超过 ${UPLOAD_CONFIG.maxSize}MB!`)
     return false
   }
   return true
 }
 
-function getLevel(parentId) {
-  if (!parentId || parentId === 0) return 1;
-  const parent = findNodeById(treeData.value, parentId);
-  return parent ? (parent.level || 1) + 1 : 1;
-}
-
+// 生命周期
 onMounted(() => {
   getTableData()
   getOrgTypeOptions()
@@ -385,24 +380,83 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.org-layout { padding: 20px; background: #f5f7fa; min-height: 100vh; }
-.org-main-row { height: 80vh; }
-.org-tree-col, .org-detail-col, .org-member-col { height: 100%; }
-.org-tree-card, .org-detail-card, .org-member-card { height: 100%; }
-.org-tree-header, .org-detail-header, .org-member-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.custom-tree-node { display: flex; align-items: center; justify-content: space-between; padding-right: 8px; font-size: 14px; }
-.node-label { margin-left: 4px; }
-/* 操作按钮默认隐藏，悬停节点时显示 */
+.org-layout { 
+  padding: 20px; 
+  background: #f5f7fa; 
+  min-height: 100vh; 
+}
+
+.org-main-row { 
+  height: 80vh; 
+}
+
+.org-tree-col, 
+.org-detail-col, 
+.org-member-col { 
+  height: 100%; 
+}
+
+.org-card { 
+  height: 100%; 
+}
+
+.org-header { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  margin-bottom: 10px; 
+}
+
+.custom-tree-node { 
+  display: flex; 
+  align-items: center; 
+  justify-content: space-between; 
+  padding-right: 8px; 
+  font-size: 14px; 
+  width: 100%;
+}
+
+.node-label { 
+  margin-left: 4px; 
+}
+
 .custom-tree-node .node-actions {
   opacity: 0;
   transition: opacity 0.2s;
   display: flex;
-  gap: 6px; /* 按钮间距加大 */
-  margin-left: 8px; /* 与标签拉开距离 */
+  gap: 6px;
+  margin-left: 8px;
 }
+
 .custom-tree-node:hover .node-actions {
   opacity: 1;
 }
-.org-detail-card { max-height: 80vh; overflow-y: auto; padding-right: 8px; }
-.org-desc :deep(.el-descriptions__label) { white-space: nowrap; min-width: 120px; max-width: 120px; width: 1%; text-align: center; }
+
+.org-detail-card { 
+  max-height: 80vh; 
+  overflow-y: auto; 
+  padding-right: 8px; 
+}
+
+.org-desc :deep(.el-descriptions__label) { 
+  white-space: nowrap; 
+  min-width: 120px; 
+  max-width: 120px; 
+  width: 1%; 
+  text-align: center; 
+}
+
+.action-icon {
+  cursor: pointer;
+  color: #666;
+  transition: color 0.2s;
+}
+
+.action-icon:hover {
+  color: #409eff;
+}
+
+.action-icon.delete:hover {
+  color: #f56c6c;
+}
 </style>
